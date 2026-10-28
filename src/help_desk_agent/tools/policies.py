@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import heapq
 import json
 import math
 import re
+from collections import Counter
 from collections.abc import Callable
+from functools import lru_cache
+from operator import mul
 from pathlib import Path
 from typing import Any
 
@@ -22,41 +26,48 @@ from help_desk_agent.models import PolicyChunk
 
 EmbedFn = Callable[[list[str]], list[list[float]]]
 
-STOPWORDS = {
-    "a",
-    "an",
-    "and",
-    "are",
-    "as",
-    "at",
-    "be",
-    "by",
-    "can",
-    "do",
-    "for",
-    "from",
-    "get",
-    "have",
-    "how",
-    "i",
-    "if",
-    "in",
-    "is",
-    "it",
-    "my",
-    "of",
-    "on",
-    "or",
-    "the",
-    "to",
-    "what",
-    "when",
-    "where",
-    "will",
-    "with",
-    "you",
-    "your",
-}
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
+_SECTION_SPLIT_RE = re.compile(r"(?m)^(?=## )")
+_EBIKE_VARIANTS = frozenset({"e-bike", "ebikes", "e-bikes"})
+
+STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "by",
+        "can",
+        "do",
+        "for",
+        "from",
+        "get",
+        "have",
+        "how",
+        "i",
+        "if",
+        "in",
+        "is",
+        "it",
+        "my",
+        "of",
+        "on",
+        "or",
+        "the",
+        "to",
+        "what",
+        "when",
+        "where",
+        "will",
+        "with",
+        "you",
+        "your",
+    }
+)
 
 SYNONYM_MAP: dict[str, list[str]] = {
     "saturday": ["open", "monday", "sunday", "april", "october", "november"],
@@ -90,9 +101,10 @@ SYNONYM_MAP: dict[str, list[str]] = {
 }
 
 
+@lru_cache(maxsize=1024)
 def _normalize_token(token: str) -> str:
     """Apply lightweight normalization/stemming to a lowercase word token."""
-    if token in ("e-bike", "ebikes", "e-bikes"):
+    if token in _EBIKE_VARIANTS:
         return "ebike"
     if len(token) > 4 and token.endswith("ies"):
         return token[:-3] + "y"
@@ -106,7 +118,7 @@ def _normalize_token(token: str) -> str:
 def tokenize(text: str, expand_synonyms: bool = False) -> list[str]:
     """Tokenize text into normalized keywords."""
     cleaned = text.lower().replace("e-bike", "ebike")
-    raw_tokens = re.findall(r"[a-z0-9]+", cleaned)
+    raw_tokens = _TOKEN_RE.findall(cleaned)
     tokens: list[str] = []
     for tok in raw_tokens:
         if tok in STOPWORDS:
@@ -114,9 +126,60 @@ def tokenize(text: str, expand_synonyms: bool = False) -> list[str]:
         norm = _normalize_token(tok)
         if norm and norm not in STOPWORDS:
             tokens.append(norm)
-            if expand_synonyms and norm in SYNONYM_MAP:
-                tokens.extend(SYNONYM_MAP[norm])
+            if expand_synonyms and (synonyms := SYNONYM_MAP.get(norm)):
+                tokens.extend(synonyms)
     return tokens
+
+
+def _slugify(title: str) -> str:
+    """Convert a section or document title into a URL-friendly slug."""
+    return _SLUG_RE.sub("-", title.lower()).strip("-")
+
+
+def _parse_markdown_chunks(md_file: Path, raw_text: str) -> list[PolicyChunk]:
+    """Split a single markdown document into section PolicyChunks."""
+    parts = _SECTION_SPLIT_RE.split(raw_text)
+    header_block, *section_blocks = (
+        ["", *parts] if raw_text.startswith("## ") else parts
+    )
+
+    doc_title = md_file.stem.capitalize()
+    preamble_lines: list[str] = []
+    for line in header_block.splitlines():
+        stripped = line.strip()
+        if line.startswith("# ") and not line.startswith("## "):
+            doc_title = line[2:].strip()
+        elif stripped:
+            preamble_lines.append(stripped)
+
+    if not section_blocks:
+        return [
+            PolicyChunk(
+                chunk_id=f"{md_file.name}#{_slugify(doc_title)}",
+                source_file=md_file.name,
+                document_title=doc_title,
+                section_title=doc_title,
+                content=raw_text,
+            )
+        ]
+
+    preamble = "\n".join(preamble_lines)
+    prefix = (
+        f"# {doc_title}\n{preamble}\n\n" if preamble else f"# {doc_title}\n\n"
+    )
+
+    return [
+        PolicyChunk(
+            chunk_id=f"{md_file.name}#{_slugify(sec_title)}",
+            source_file=md_file.name,
+            document_title=doc_title,
+            section_title=sec_title,
+            content=f"{prefix}{body}",
+        )
+        for block in section_blocks
+        if (body := block.strip())
+        and (sec_title := body.partition("\n")[0][3:].strip())
+    ]
 
 
 def load_policy_chunks(policies_dir: Path | None = None) -> list[PolicyChunk]:
@@ -128,68 +191,25 @@ def load_policy_chunks(policies_dir: Path | None = None) -> list[PolicyChunk]:
     chunks: list[PolicyChunk] = []
     for md_file in sorted(directory.glob("*.md")):
         raw_text = md_file.read_text(encoding="utf-8").strip()
-        if not raw_text:
-            continue
-
-        lines = raw_text.splitlines()
-        doc_title = md_file.stem.capitalize()
-        preamble_lines: list[str] = []
-        sections: list[tuple[str, list[str]]] = []
-        current_section_title: str | None = None
-        current_lines: list[str] = []
-
-        for line in lines:
-            if line.startswith("# ") and not line.startswith("## "):
-                doc_title = line[2:].strip()
-            elif line.startswith("## "):
-                if current_section_title is not None:
-                    sections.append((current_section_title, current_lines))
-                current_section_title = line[3:].strip()
-                current_lines = [line]
-            else:
-                if current_section_title is None:
-                    if line.strip():
-                        preamble_lines.append(line.strip())
-                else:
-                    current_lines.append(line)
-
-        if current_section_title is not None:
-            sections.append((current_section_title, current_lines))
-
-        preamble = "\n".join(preamble_lines).strip()
-
-        if not sections:
-            slug = re.sub(r"[^a-z0-9]+", "-", doc_title.lower()).strip("-")
-            chunks.append(
-                PolicyChunk(
-                    chunk_id=f"{md_file.name}#{slug}",
-                    source_file=md_file.name,
-                    document_title=doc_title,
-                    section_title=doc_title,
-                    content=raw_text,
-                )
-            )
-            continue
-
-        for sec_title, sec_lines in sections:
-            slug = re.sub(r"[^a-z0-9]+", "-", sec_title.lower()).strip("-")
-            body = "\n".join(sec_lines).strip()
-            if preamble:
-                full_content = f"# {doc_title}\n{preamble}\n\n{body}"
-            else:
-                full_content = f"# {doc_title}\n\n{body}"
-
-            chunks.append(
-                PolicyChunk(
-                    chunk_id=f"{md_file.name}#{slug}",
-                    source_file=md_file.name,
-                    document_title=doc_title,
-                    section_title=sec_title,
-                    content=full_content,
-                )
-            )
-
+        if raw_text:
+            chunks.extend(_parse_markdown_chunks(md_file, raw_text))
     return chunks
+
+
+@lru_cache(maxsize=256)
+def _chunk_token_stats(
+    document_title: str,
+    section_title: str,
+    content: str,
+) -> tuple[Counter[str], int]:
+    """Return cached (term-frequency Counter, token count) for a chunk."""
+    title_tokens = tokenize(
+        f"{document_title} {section_title}",
+        expand_synonyms=False,
+    )
+    body_tokens = tokenize(content, expand_synonyms=False)
+    all_tokens = title_tokens * 2 + body_tokens
+    return Counter(all_tokens), len(all_tokens)
 
 
 def compute_bm25_scores(
@@ -202,46 +222,45 @@ def compute_bm25_scores(
     if not chunks:
         return []
 
-    query_tokens = tokenize(query, expand_synonyms=True)
-    if not query_tokens:
-        return [0.0 for _ in chunks]
+    query_counts = Counter(tokenize(query, expand_synonyms=True))
+    if not query_counts:
+        return [0.0] * len(chunks)
 
-    doc_tokens_list: list[list[str]] = []
-    for chunk in chunks:
-        # Boost section title and document title tokens
-        title_tokens = tokenize(
-            f"{chunk.document_title} {chunk.section_title}",
-            expand_synonyms=False,
-        )
-        body_tokens = tokenize(chunk.content, expand_synonyms=False)
-        doc_tokens_list.append(title_tokens * 2 + body_tokens)
+    # Boost section title and document title tokens (cached per chunk content)
+    doc_stats = [
+        _chunk_token_stats(c.document_title, c.section_title, c.content)
+        for c in chunks
+    ]
 
     n_docs = len(chunks)
-    avgdl = sum(len(t) for t in doc_tokens_list) / max(n_docs, 1)
+    avgdl = max(
+        sum(doc_len for _, doc_len in doc_stats) / max(n_docs, 1),
+        1.0,
+    )
 
-    # Document frequencies
-    df: dict[str, int] = {}
-    for tokens in doc_tokens_list:
-        for unique_tok in set(tokens):
-            df[unique_tok] = df.get(unique_tok, 0) + 1
+    # Precompute weighted IDF only for unique query terms
+    idf_map: dict[str, float] = {}
+    for q_tok, q_weight in query_counts.items():
+        n_q = sum(1 for tf_map, _ in doc_stats if q_tok in tf_map)
+        idf = math.log((n_docs - n_q + 0.5) / (n_q + 0.5) + 1.0)
+        idf_map[q_tok] = idf * q_weight
+
+    query_term_set = idf_map.keys()
+    k1_plus_1 = k1 + 1.0
 
     scores: list[float] = []
-    for tokens in doc_tokens_list:
-        score = 0.0
-        doc_len = len(tokens)
-        tf_map: dict[str, int] = {}
-        for tok in tokens:
-            tf_map[tok] = tf_map.get(tok, 0) + 1
+    for tf_map, doc_len in doc_stats:
+        matching_terms = tf_map.keys() & query_term_set
+        if not matching_terms:
+            scores.append(0.0)
+            continue
 
-        for q_tok in query_tokens:
-            if q_tok not in tf_map:
-                continue
-            tf = tf_map[q_tok]
-            n_q = df.get(q_tok, 0)
-            idf = math.log((n_docs - n_q + 0.5) / (n_q + 0.5) + 1.0)
-            denom = tf + k1 * (1.0 - b + b * (doc_len / max(avgdl, 1.0)))
-            score += idf * ((tf * (k1 + 1.0)) / denom)
-
+        norm_denom = k1 * (1.0 - b + b * (doc_len / avgdl))
+        score = sum(
+            idf_map[tok]
+            * ((tf_map[tok] * k1_plus_1) / (tf_map[tok] + norm_denom))
+            for tok in matching_terms
+        )
         scores.append(score)
 
     return scores
@@ -251,12 +270,10 @@ def cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
     """Calculate cosine similarity between two float vectors."""
     if not vec_a or not vec_b or len(vec_a) != len(vec_b):
         return 0.0
-    dot = sum(a * b for a, b in zip(vec_a, vec_b, strict=False))
-    norm_a = math.sqrt(sum(a * a for a in vec_a))
-    norm_b = math.sqrt(sum(b * b for b in vec_b))
-    if norm_a == 0.0 or norm_b == 0.0:
+    norm_product = math.hypot(*vec_a) * math.hypot(*vec_b)
+    if norm_product == 0.0:
         return 0.0
-    return dot / (norm_a * norm_b)
+    return sum(map(mul, vec_a, vec_b)) / norm_product
 
 
 def _default_gemini_embed(texts: list[str]) -> list[list[float]]:
@@ -269,10 +286,11 @@ def _default_gemini_embed(texts: list[str]) -> list[list[float]]:
 
     client = genai.Client(api_key=api_key)
     preferred_model = get_gemini_embedding_model()
-    candidate_models = [preferred_model]
-    for fallback in ("gemini-embedding-001", "gemini-embedding-2"):
-        if fallback not in candidate_models:
-            candidate_models.append(fallback)
+    candidate_models = list(
+        dict.fromkeys(
+            (preferred_model, "gemini-embedding-001", "gemini-embedding-2")
+        )
+    )
 
     last_err: Exception | None = None
     for model_name in candidate_models:
@@ -293,14 +311,18 @@ def _default_gemini_embed(texts: list[str]) -> list[list[float]]:
 _MEMORY_EMBEDDING_CACHE: dict[str, list[float]] = {}
 
 
+def _chunk_cache_key(chunk: PolicyChunk) -> str:
+    """Build a deterministic cache key for a policy chunk."""
+    digest = hashlib.sha256(chunk.content.encode("utf-8")).hexdigest()[:16]
+    return f"{chunk.chunk_id}:{digest}"
+
+
 def _get_chunk_embeddings(
     chunks: list[PolicyChunk],
     embed_fn: EmbedFn,
     cache_path: Path | None = EMBEDDINGS_CACHE_PATH,
 ) -> list[list[float]]:
     """Retrieve or compute embeddings for policy chunks with local caching."""
-    global _MEMORY_EMBEDDING_CACHE
-
     if not _MEMORY_EMBEDDING_CACHE and cache_path and cache_path.exists():
         try:
             loaded = json.loads(cache_path.read_text(encoding="utf-8"))
@@ -309,22 +331,19 @@ def _get_chunk_embeddings(
         except Exception:
             pass
 
-    missing_texts: list[str] = []
-    missing_keys: list[str] = []
-    chunk_keys: list[str] = []
+    chunk_keys = [_chunk_cache_key(c) for c in chunks]
+    missing_pairs = [
+        (key, c.content)
+        for key, c in zip(chunk_keys, chunks, strict=False)
+        if key not in _MEMORY_EMBEDDING_CACHE
+    ]
 
-    for chunk in chunks:
-        digest = hashlib.sha256(chunk.content.encode("utf-8")).hexdigest()[:16]
-        key = f"{chunk.chunk_id}:{digest}"
-        chunk_keys.append(key)
-        if key not in _MEMORY_EMBEDDING_CACHE:
-            missing_keys.append(key)
-            missing_texts.append(chunk.content)
-
-    if missing_texts:
-        new_vectors = embed_fn(missing_texts)
-        for key, vec in zip(missing_keys, new_vectors, strict=False):
-            _MEMORY_EMBEDDING_CACHE[key] = vec
+    if missing_pairs:
+        missing_keys, missing_texts = zip(*missing_pairs, strict=False)
+        new_vectors = embed_fn(list(missing_texts))
+        _MEMORY_EMBEDDING_CACHE.update(
+            zip(missing_keys, new_vectors, strict=False)
+        )
         if cache_path and embed_fn is _default_gemini_embed:
             try:
                 cache_path.write_text(
@@ -335,6 +354,30 @@ def _get_chunk_embeddings(
                 pass
 
     return [_MEMORY_EMBEDDING_CACHE[k] for k in chunk_keys]
+
+
+def _resolve_embed_fn(
+    mode: str,
+    embed_fn: EmbedFn | None,
+) -> EmbedFn | None:
+    """Resolve the active embedding function for the requested search mode."""
+    if mode in {"semantic", "hybrid"}:
+        return embed_fn or _default_gemini_embed
+    if mode == "auto" and (embed_fn is not None or get_gemini_api_key()):
+        return embed_fn or _default_gemini_embed
+    return None
+
+
+def _combine_hybrid_score(
+    b_score: float,
+    s_score: float,
+    max_bm25: float,
+) -> float:
+    """Combine normalized BM25 and semantic similarity scores."""
+    norm_s = max(0.0, s_score)
+    if b_score > 0.0:
+        return round(0.55 * (b_score / max_bm25) + 0.45 * norm_s, 4)
+    return round(norm_s, 4) if norm_s >= 0.45 else 0.0
 
 
 def search_policies(
@@ -352,12 +395,13 @@ def search_policies(
     - 'hybrid' / 'auto': Reciprocal Rank Fusion (RRF) of BM25 + embeddings
       when an API key or embed_fn is available, falling back to BM25 offline.
     """
+    staff_contact = {"email": STAFF_EMAIL, "phone": STAFF_PHONE}
     if not query or not isinstance(query, str) or not query.strip():
         return {
             "query": str(query or ""),
             "mode_used": "none",
             "results": [],
-            "staff_contact": {"email": STAFF_EMAIL, "phone": STAFF_PHONE},
+            "staff_contact": staff_contact,
         }
 
     chunks = load_policy_chunks(policies_dir=policies_dir)
@@ -366,28 +410,16 @@ def search_policies(
             "query": query,
             "mode_used": "none",
             "results": [],
-            "staff_contact": {"email": STAFF_EMAIL, "phone": STAFF_PHONE},
+            "staff_contact": staff_contact,
         }
 
     bm25_scores = compute_bm25_scores(query, chunks)
-
-    use_semantic = False
-    active_embed_fn = embed_fn
-    if mode in ("semantic", "hybrid"):
-        use_semantic = True
-        if active_embed_fn is None:
-            active_embed_fn = _default_gemini_embed
-    elif mode == "auto":
-        if active_embed_fn is not None:
-            use_semantic = True
-        elif get_gemini_api_key() is not None:
-            use_semantic = True
-            active_embed_fn = _default_gemini_embed
+    active_embed_fn = _resolve_embed_fn(mode, embed_fn)
 
     semantic_scores: list[float] | None = None
     mode_used = "bm25"
 
-    if use_semantic and active_embed_fn is not None:
+    if active_embed_fn is not None:
         try:
             chunk_vecs = _get_chunk_embeddings(
                 chunks,
@@ -405,35 +437,29 @@ def search_policies(
             semantic_scores = None
             mode_used = "bm25"
 
-    # Combine scores
-    final_scores: list[float] = []
     if mode_used == "semantic" and semantic_scores is not None:
         final_scores = semantic_scores
     elif mode_used == "hybrid" and semantic_scores is not None:
-        # Normalized hybrid combination (BM25 + Semantic similarity)
-        max_bm25 = max(bm25_scores) if max(bm25_scores) > 0 else 1.0
-        for b_score, s_score in zip(
-            bm25_scores, semantic_scores, strict=False
-        ):
-            norm_b = b_score / max_bm25 if max_bm25 > 0 else 0.0
-            norm_s = max(0.0, s_score)
-            # If BM25 found an exact match, combine both; if BM25 is 0,
-            # only trust semantic if similarity is reasonably strong (>= 0.45)
-            if b_score > 0:
-                combined = 0.55 * norm_b + 0.45 * norm_s
-            else:
-                combined = norm_s if norm_s >= 0.45 else 0.0
-            final_scores.append(round(combined, 4))
+        max_bm25 = max(bm25_scores, default=0.0) or 1.0
+        final_scores = [
+            _combine_hybrid_score(b_score, s_score, max_bm25)
+            for b_score, s_score in zip(
+                bm25_scores, semantic_scores, strict=False
+            )
+        ]
     else:
         final_scores = [round(s, 4) for s in bm25_scores]
 
-    scored_chunks: list[PolicyChunk] = []
-    for chunk, score in zip(chunks, final_scores, strict=False):
-        if score > 0.0:
-            scored_chunks.append(chunk.model_copy(update={"score": score}))
-
-    scored_chunks.sort(key=lambda c: c.score, reverse=True)
-    top_chunks = scored_chunks[: max(1, top_k)]
+    scored_chunks = [
+        chunk.model_copy(update={"score": score})
+        for chunk, score in zip(chunks, final_scores, strict=False)
+        if score > 0.0
+    ]
+    top_chunks = heapq.nlargest(
+        max(1, top_k),
+        scored_chunks,
+        key=lambda c: c.score,
+    )
 
     return {
         "query": query,
@@ -449,8 +475,5 @@ def search_policies(
             }
             for c in top_chunks
         ],
-        "staff_contact": {
-            "email": STAFF_EMAIL,
-            "phone": STAFF_PHONE,
-        },
+        "staff_contact": staff_contact,
     }

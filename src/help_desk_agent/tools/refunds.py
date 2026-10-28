@@ -7,8 +7,12 @@ from pathlib import Path
 from typing import Any
 
 from help_desk_agent.config import FIXED_CURRENT_TIME
-from help_desk_agent.models import Booking, RefundResult
-from help_desk_agent.tools.bookings import get_booking
+from help_desk_agent.models import RefundResult
+from help_desk_agent.tools.bookings import find_booking_model
+
+_NON_CANCELLABLE_STATUSES = frozenset(
+    {"in_progress", "completed", "cancelled"}
+)
 
 
 def _parse_cancel_time(
@@ -42,19 +46,25 @@ def calculate_refund(
     All amounts are calculated deterministically in Python following
     data/policies/cancellations.md.
     """
-    lookup = get_booking(booking_id=booking_id, bookings_path=bookings_path)
-    if not lookup.get("found"):
+    booking = find_booking_model(
+        booking_id=booking_id,
+        bookings_path=bookings_path,
+    )
+    if booking is None:
+        cleaned_id = booking_id.strip() if isinstance(booking_id, str) else ""
+        msg = (
+            f"Booking '{cleaned_id}' was not found."
+            if cleaned_id
+            else "Booking ID was not provided or is invalid."
+        )
         result = RefundResult(
             found=False,
-            booking_id=str(booking_id or "").strip().upper(),
+            booking_id=cleaned_id.upper(),
             can_cancel=False,
-            explanation=lookup.get(
-                "message", f"Booking '{booking_id}' was not found."
-            ),
+            explanation=msg,
         )
         return result.model_dump()
 
-    booking = Booking.model_validate(lookup["booking"])
     start_dt = datetime.fromisoformat(booking.start)
 
     try:
@@ -69,7 +79,7 @@ def calculate_refund(
 
     # Rule: Bookings with status in_progress, completed or cancelled
     # cannot be cancelled, and nothing is refunded for them.
-    if booking.status in ("in_progress", "completed", "cancelled"):
+    if booking.status in _NON_CANCELLABLE_STATUSES:
         result = RefundResult(
             found=True,
             booking_id=booking.id,

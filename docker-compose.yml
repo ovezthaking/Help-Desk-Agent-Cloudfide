@@ -1,0 +1,41 @@
+services:
+  # Main CLI / Interactive Help Desk Agent
+  # Usage:
+  #   docker compose run --rm agent "What time do you open on Saturday?"
+  #   docker compose run --rm agent --interactive
+  agent:
+    build: .
+    image: citywheels-help-desk-agent:latest
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.5-flash}
+    stdin_open: true
+    tty: true
+
+  # Offline Unit & Agent Loop Test Runner + Linter (no API key or internet required)
+  # Usage:
+  #   docker compose run --rm test
+  test:
+    build: .
+    image: citywheels-help-desk-agent:latest
+    entrypoint: ["sh", "-c"]
+    command: ["uv run ruff check . && uv run pytest -v"]
+
+  # Automated Evaluation Suite Runner (writes report directly to ./eval/results.md)
+  # Usage:
+  #   docker compose run --rm eval
+  eval:
+    build: .
+    image: citywheels-help-desk-agent:latest
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.5-flash}
+    volumes:
+      - ./eval:/app/eval
+    entrypoint: ["uv", "run", "python", "-m", "eval.run_eval"]

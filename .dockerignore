@@ -1,0 +1,14 @@
+.git
+.github
+.venv
+__pycache__
+*.py[cod]
+*$py.class
+.pytest_cache
+.ruff_cache
+.env
+dist
+build
+*.egg-info
+docs/task-help-desk-agent.md
+docs/PLAN.md

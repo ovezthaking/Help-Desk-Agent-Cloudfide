@@ -14,6 +14,8 @@ from operator import mul
 from pathlib import Path
 from typing import Any
 
+from google import genai
+
 from help_desk_agent.config import (
     EMBEDDINGS_CACHE_PATH,
     POLICIES_DIR,
@@ -71,7 +73,7 @@ STOPWORDS = frozenset(
 
 SYNONYM_MAP: dict[str, list[str]] = {
     "saturday": ["open", "monday", "sunday", "april", "october", "november"],
-    "sunday": ["open", "closed", "sunday", "november", "march"],
+    "sunday": ["open", "closed", "november", "march"],
     "weekend": ["open", "saturday", "sunday"],
     "hours": ["open", "closed", "08", "20", "09", "17"],
     "schedule": ["open", "closed"],
@@ -278,8 +280,6 @@ def cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
 
 def _default_gemini_embed(texts: list[str]) -> list[list[float]]:
     """Generate embeddings using the Google GenAI SDK with model fallback."""
-    from google import genai
-
     api_key = get_gemini_api_key()
     if not api_key:
         raise RuntimeError("No GEMINI_API_KEY configured for embeddings.")
@@ -328,7 +328,7 @@ def _get_chunk_embeddings(
             loaded = json.loads(cache_path.read_text(encoding="utf-8"))
             if isinstance(loaded, dict):
                 _MEMORY_EMBEDDING_CACHE.update(loaded)
-        except Exception:
+        except (json.JSONDecodeError, OSError):
             pass
 
     chunk_keys = [_chunk_cache_key(c) for c in chunks]
@@ -350,7 +350,7 @@ def _get_chunk_embeddings(
                     json.dumps(_MEMORY_EMBEDDING_CACHE),
                     encoding="utf-8",
                 )
-            except Exception:
+            except OSError:
                 pass
 
     return [_MEMORY_EMBEDDING_CACHE[k] for k in chunk_keys]

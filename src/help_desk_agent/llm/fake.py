@@ -26,6 +26,8 @@ class FakeLLMClient:
         self._responses: deque[LLMResponse] = deque(responses or ())
         self._handler = handler
         self.call_history: list[list[dict[str, Any]]] = []
+        self.last_system_prompt: str | None = None
+        self.last_tools: list[dict[str, Any]] = []
 
     def generate(
         self,
@@ -34,8 +36,10 @@ class FakeLLMClient:
         tools: list[dict[str, Any]],
     ) -> LLMResponse:
         """Return the next scripted LLMResponse or invoke the handler."""
-        # Record a shallow snapshot of messages for test assertions
+        # Record snapshots for test assertions
         self.call_history.append([dict(m) for m in messages])
+        self.last_system_prompt = system_prompt
+        self.last_tools = list(tools)
 
         if self._handler is not None:
             return self._handler(messages)

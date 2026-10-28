@@ -17,13 +17,13 @@ def _load_bookings_index_cached(
     mtime_ns: int,
 ) -> dict[str, Booking]:
     """Load and index bookings by uppercase ID, cached by file mtime."""
-    del mtime_ns  # Used as part of the cache key for invalidation
+    _ = mtime_ns  # Cache key component for invalidation
     raw_data = json.loads(resolved_path.read_text(encoding="utf-8"))
-    return {
-        booking.id.upper(): booking
-        for item in raw_data
-        if (booking := Booking.model_validate(item))
-    }
+    index: dict[str, Booking] = {}
+    for item in raw_data:
+        booking = Booking.model_validate(item)
+        index[booking.id.upper()] = booking
+    return index
 
 
 def _get_bookings_index(

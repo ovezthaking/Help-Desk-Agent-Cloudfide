@@ -60,7 +60,7 @@ class HelpDeskAgent:
                     {
                         "role": "assistant",
                         "content": final_text,
-                        "raw_model_parts": llm_response.raw_model_Parts,
+                        "raw_model_parts": llm_response.raw_model_parts,
                     }
                 )
                 return AgentResponse(
@@ -78,7 +78,7 @@ class HelpDeskAgent:
                         {"name": tc.name, "args": tc.args}
                         for tc in llm_response.tool_calls
                     ],
-                    "raw_model_parts": llm_response.raw_model_Parts,
+                    "raw_model_parts": llm_response.raw_model_parts,
                 }
             )
 

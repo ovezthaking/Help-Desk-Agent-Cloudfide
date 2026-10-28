@@ -43,7 +43,7 @@ class GeminiLLMClient:
     def _build_tool_config(
         self,
         tools: list[dict[str, Any]],
-    ) -> list[types.Tool]:
+    ) -> list[Any]:
         declarations = [
             types.FunctionDeclaration(
                 name=schema["name"],
@@ -136,8 +136,12 @@ class GeminiLLMClient:
                 raise
 
         if response is None:
-            assert last_exc is not None
-            raise last_exc
+            if last_exc is not None:
+                raise last_exc
+            raise RuntimeError(
+                "Gemini API error: failed to generate "
+                + "content with all candidate models."
+            )
 
         tool_calls: list[ToolCallRequest] = []
         text_parts: list[str] = []
@@ -167,5 +171,5 @@ class GeminiLLMClient:
         return LLMResponse(
             text=combined_text,
             tool_calls=tool_calls,
-            raw_model_Parts=raw_parts if raw_parts else None,
+            raw_model_parts=raw_parts if raw_parts else None,
         )

@@ -81,7 +81,7 @@ class LLMResponse(BaseModel):
 
     text: str | None = None
     tool_calls: list[ToolCallRequest] = Field(default_factory=list)
-    raw_model_Parts: Any = None
+    raw_model_parts: Any = None
 
 
 class AgentResponse(BaseModel):

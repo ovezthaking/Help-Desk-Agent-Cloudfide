@@ -1,0 +1,142 @@
+[
+  {
+    "id": "Q01",
+    "category": "policy",
+    "question": "What time do you open on Saturday?",
+    "expected_tools_any": ["search_policies"],
+    "must_contain_all": ["08:00", "20:00"],
+    "must_contain_any": ["April", "October", "09:00", "17:00"],
+    "must_not_contain": [],
+    "description": "Opening hours on Saturdays (seasonal schedule in faq.md)"
+  },
+  {
+    "id": "Q02",
+    "category": "policy",
+    "question": "How much is an e-bike for a whole day?",
+    "expected_tools_any": ["search_policies"],
+    "must_contain_all": ["40"],
+    "must_contain_any": ["EUR", "euro"],
+    "must_not_contain": [],
+    "description": "Daily rental price for an electric bike (40 EUR)"
+  },
+  {
+    "id": "Q03",
+    "category": "policy",
+    "question": "Can my 14-year-old rent an e-bike?",
+    "expected_tools_any": ["search_policies"],
+    "must_contain_all": ["16"],
+    "must_contain_any": ["no", "cannot", "not", "13", "city"],
+    "must_not_contain": [],
+    "description": "Age limit check: e-bikes require 16+, city bikes 13+"
+  },
+  {
+    "id": "Q04",
+    "category": "policy",
+    "question": "Can I bring my dog in the bike basket?",
+    "expected_tools_any": ["search_policies"],
+    "must_contain_all": [],
+    "must_contain_any": ["not allowed", "no", "cannot"],
+    "must_not_contain": [],
+    "description": "Dogs are not allowed in bike baskets or child seats"
+  },
+  {
+    "id": "Q05",
+    "category": "policy",
+    "question": "What happens if I return a city bike 2 hours late?",
+    "expected_tools_any": ["search_policies"],
+    "must_contain_all": ["deposit"],
+    "must_contain_any": ["1.5", "6 EUR", "12 EUR"],
+    "must_not_contain": [],
+    "description": "Late return fee is 1.5x hourly price per started hour, taken from deposit"
+  },
+  {
+    "id": "Q06",
+    "category": "refund",
+    "question": "I want to cancel booking CW-1002. How much will I get back?",
+    "expected_tools_any": ["calculate_refund"],
+    "must_contain_all": ["40", "300", "340"],
+    "must_contain_any": ["50%", "deposit", "booking fee"],
+    "must_not_contain": [],
+    "description": "Refund for CW-1002 (33h before start): 50% of 80 EUR (40 EUR) + 300 EUR deposit = 340 EUR"
+  },
+  {
+    "id": "Q07",
+    "category": "refund",
+    "question": "If I cancel booking CW-1003 right now, how much will I get back?",
+    "expected_tools_any": ["calculate_refund"],
+    "must_contain_all": ["50"],
+    "must_contain_any": ["0", "deposit", "less than 24"],
+    "must_not_contain": [],
+    "description": "Refund for CW-1003 (6h before start): 0 EUR rental refund + 50 EUR deposit = 50 EUR"
+  },
+  {
+    "id": "Q08",
+    "category": "refund",
+    "question": "I want to cancel booking CW-1004. How much will I get back and how is it refunded?",
+    "expected_tools_any": ["calculate_refund"],
+    "must_contain_all": ["23", "50", "voucher"],
+    "must_contain_any": ["73", "deposit"],
+    "must_not_contain": [],
+    "description": "Refund for CW-1004 (paid with voucher, >48h): 23 EUR as new voucher + 50 EUR deposit"
+  },
+  {
+    "id": "Q09",
+    "category": "refund",
+    "question": "Can I cancel booking CW-1008 and get a refund?",
+    "expected_tools_any": ["calculate_refund"],
+    "must_contain_all": [],
+    "must_contain_any": ["in_progress", "in progress", "cannot be cancelled", "cannot cancel"],
+    "must_not_contain": [],
+    "description": "CW-1008 is in_progress and cannot be cancelled (0 EUR refund)"
+  },
+  {
+    "id": "Q10",
+    "category": "refund",
+    "question": "I want to cancel booking CW-1007. How much will I get back?",
+    "expected_tools_any": ["calculate_refund"],
+    "must_contain_all": ["36", "150", "186"],
+    "must_contain_any": ["100%", "48"],
+    "must_not_contain": [],
+    "description": "Boundary refund for CW-1007 (exactly 48h before start): 100% rental (36 EUR) + 150 EUR deposit = 186 EUR"
+  },
+  {
+    "id": "Q11",
+    "category": "booking",
+    "question": "Can you check the details of booking CW-9999?",
+    "expected_tools_any": ["get_booking", "calculate_refund"],
+    "must_contain_all": ["CW-9999"],
+    "must_contain_any": ["not found", "does not exist", "could not find", "no booking"],
+    "must_not_contain": [],
+    "description": "Non-existent booking ID CW-9999 handled gracefully"
+  },
+  {
+    "id": "Q12",
+    "category": "refusal",
+    "question": "What is the capital of Australia?",
+    "expected_tools_any": [],
+    "must_contain_all": [],
+    "must_contain_any": ["help@citywheels.example", "+48 000 000 000", "staff"],
+    "must_not_contain": ["canberra"],
+    "description": "Out-of-scope general knowledge question (must refuse and direct to staff)"
+  },
+  {
+    "id": "Q13",
+    "category": "refusal",
+    "question": "How do I bake a chocolate cake at home?",
+    "expected_tools_any": [],
+    "must_contain_all": [],
+    "must_contain_any": ["help@citywheels.example", "+48 000 000 000", "staff"],
+    "must_not_contain": ["flour", "oven", "cocoa"],
+    "description": "Out-of-scope cooking question (must refuse and direct to staff)"
+  },
+  {
+    "id": "Q14",
+    "category": "escalation",
+    "question": "There is a storm warning for my rental day. Will I get a full refund automatically?",
+    "expected_tools_any": ["search_policies"],
+    "must_contain_all": ["staff"],
+    "must_contain_any": ["help@citywheels.example", "+48 000 000 000", "decide"],
+    "must_not_contain": [],
+    "description": "Bad weather policy: staff decide each case, customer must contact staff"
+  }
+]

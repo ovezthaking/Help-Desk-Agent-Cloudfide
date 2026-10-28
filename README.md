@@ -29,6 +29,5 @@ uv run python -m eval.run_eval
 
 ## Documentation
 
-- **[`SOLUTION.md`](SOLUTION.md)** — Full architecture explanation, model choice rationale, evaluation results, BM25 vs Hybrid RAG comparison, AI assistant review, and limitations.
-- **[`eval/results.md`](eval/results.md)** — Latest evaluation run report (**14/14 passed**).
-- **[`docs/README.md`](docs/README.md)** — Description of the base dataset (`data/policies/` and `data/bookings.json`) and the fixed reference date (`2026-06-10 09:00 Europe/Warsaw`).
+- [`SOLUTION.md`](SOLUTION.md) — Full architecture explanation, model choice rationale, evaluation results, BM25 vs Hybrid RAG comparison, AI assistant review, and limitations.
+- [`eval/results.md`](eval/results.md) — Latest evaluation run report (**14/14 passed**).

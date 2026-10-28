@@ -380,6 +380,25 @@ def _combine_hybrid_score(
     return round(norm_s, 4) if norm_s >= 0.45 else 0.0
 
 
+def _calculate_final_scores(
+    bm25_scores: list[float],
+    semantic_scores: list[float] | None,
+    mode_used: str,
+) -> list[float]:
+    """Calculate combined or single-mode relevance scores for chunks."""
+    if mode_used == "semantic" and semantic_scores is not None:
+        return semantic_scores
+    if mode_used == "hybrid" and semantic_scores is not None:
+        max_bm25 = max(bm25_scores, default=0.0) or 1.0
+        return [
+            _combine_hybrid_score(b_score, s_score, max_bm25)
+            for b_score, s_score in zip(
+                bm25_scores, semantic_scores, strict=False
+            )
+        ]
+    return [round(s, 4) for s in bm25_scores]
+
+
 def search_policies(
     query: str,
     top_k: int = 4,
@@ -437,18 +456,9 @@ def search_policies(
             semantic_scores = None
             mode_used = "bm25"
 
-    if mode_used == "semantic" and semantic_scores is not None:
-        final_scores = semantic_scores
-    elif mode_used == "hybrid" and semantic_scores is not None:
-        max_bm25 = max(bm25_scores, default=0.0) or 1.0
-        final_scores = [
-            _combine_hybrid_score(b_score, s_score, max_bm25)
-            for b_score, s_score in zip(
-                bm25_scores, semantic_scores, strict=False
-            )
-        ]
-    else:
-        final_scores = [round(s, 4) for s in bm25_scores]
+    final_scores = _calculate_final_scores(
+        bm25_scores, semantic_scores, mode_used
+    )
 
     scored_chunks = [
         chunk.model_copy(update={"score": score})

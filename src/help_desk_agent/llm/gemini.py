@@ -143,6 +143,9 @@ class GeminiLLMClient:
                 + "content with all candidate models."
             )
 
+        return self._parse_response(response)
+
+    def _parse_response(self, response: Any) -> LLMResponse:
         tool_calls: list[ToolCallRequest] = []
         text_parts: list[str] = []
         raw_parts: list[types.Part] = []

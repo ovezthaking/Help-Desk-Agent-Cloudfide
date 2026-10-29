@@ -220,4 +220,4 @@ def test_agent_conversation_memory_follow_up() -> None:
     assert len(fake_llm.call_history[-1]) >= 5
 
     agent.reset_memory()
-    assert len(agent.messages) == 0
+    assert not agent.messages

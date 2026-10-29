@@ -161,7 +161,13 @@ class ToolRegistry:
             }
         try:
             return handler(**call_args)
-        except Exception as exc:
+        except (
+            ValueError,
+            TypeError,
+            KeyError,
+            RuntimeError,
+            OSError,
+        ) as exc:
             return {
                 "error": f"Tool '{name}' failed with error: {exc}",
             }

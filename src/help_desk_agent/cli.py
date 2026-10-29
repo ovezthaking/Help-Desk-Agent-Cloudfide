@@ -82,7 +82,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.question:
         try:
             _print_response(agent, args.question, verbose=args.verbose)
-        except Exception as exc:
+        except (RuntimeError, ValueError, OSError, ConnectionError) as exc:
             print(f"Error communicating with LLM: {exc}", file=sys.stderr)
             return 1
         if not args.interactive:
@@ -112,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             print("\nAgent: ", end="", flush=True)
             _print_response(agent, user_input, verbose=args.verbose)
-        except Exception as exc:
+        except (RuntimeError, ValueError, OSError, ConnectionError) as exc:
             print(f"\nError: {exc}", file=sys.stderr)
 
     return 0

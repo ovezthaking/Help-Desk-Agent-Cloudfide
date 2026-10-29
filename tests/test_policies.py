@@ -78,5 +78,5 @@ def test_search_policies_hybrid_with_mock_embedder() -> None:
 def test_search_policies_empty_query() -> None:
     """Verify empty query returns empty results without crashing."""
     res = search_policies("   ", mode="bm25")
-    assert res["results"] == []
+    assert not res["results"]
     assert "email" in res["staff_contact"]

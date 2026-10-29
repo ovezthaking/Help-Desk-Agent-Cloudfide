@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from google import genai
-from google.genai import types
+from google.genai import errors, types
 
 from help_desk_agent.config import get_gemini_api_key, get_gemini_model
 from help_desk_agent.models import LLMResponse, ToolCallRequest
@@ -128,7 +128,7 @@ class GeminiLLMClient:
                 )
                 self.model = candidate_model
                 break
-            except Exception as exc:
+            except (errors.APIError, RuntimeError, ValueError, OSError) as exc:
                 last_exc = exc
                 err_str = str(exc)
                 if any(code in err_str for code in _RETRYABLE_ERROR_CODES):
@@ -137,7 +137,9 @@ class GeminiLLMClient:
 
         if response is None:
             if last_exc is not None:
-                raise last_exc
+                raise RuntimeError(
+                    f"Gemini API error with model '{self.model}': {last_exc}"
+                ) from last_exc
             raise RuntimeError(
                 "Gemini API error: failed to generate "
                 + "content with all candidate models."

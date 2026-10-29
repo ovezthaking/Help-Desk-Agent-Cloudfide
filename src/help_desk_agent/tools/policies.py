@@ -272,7 +272,9 @@ def cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
     """Calculate cosine similarity between two float vectors."""
     if not vec_a or not vec_b or len(vec_a) != len(vec_b):
         return 0.0
-    norm_product = math.hypot(*vec_a) * math.hypot(*vec_b)
+    norm_a = math.sqrt(sum(x * x for x in vec_a))
+    norm_b = math.sqrt(sum(x * x for x in vec_b))
+    norm_product = norm_a * norm_b
     if norm_product == 0.0:
         return 0.0
     return sum(map(mul, vec_a, vec_b)) / norm_product
@@ -301,7 +303,12 @@ def _default_gemini_embed(texts: list[str]) -> list[list[float]]:
             )
             if response.embeddings:
                 return [list(emb.values or []) for emb in response.embeddings]
-        except Exception as exc:
+        except (
+            RuntimeError,
+            ValueError,
+            OSError,
+            genai.errors.APIError,
+        ) as exc:
             last_err = exc
             continue
 
@@ -452,7 +459,14 @@ def search_policies(
                 cosine_similarity(query_vec, c_vec) for c_vec in chunk_vecs
             ]
             mode_used = "semantic" if mode == "semantic" else "hybrid"
-        except Exception:
+        except (
+            RuntimeError,
+            ValueError,
+            OSError,
+            KeyError,
+            TypeError,
+            genai.errors.APIError,
+        ):
             semantic_scores = None
             mode_used = "bm25"
 

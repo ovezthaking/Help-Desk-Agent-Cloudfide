@@ -26,8 +26,12 @@ def _parse_cancel_time(
         if cancel_at.tzinfo is None:
             return cancel_at.replace(tzinfo=reference_tz)
         return cancel_at
+    if not isinstance(cancel_at, str):
+        return FIXED_CURRENT_TIME
 
     cleaned = cancel_at.strip()
+    if not cleaned:
+        return FIXED_CURRENT_TIME
     if cleaned.endswith("Z"):
         cleaned = cleaned[:-1] + "+00:00"
     parsed = datetime.fromisoformat(cleaned)
@@ -69,7 +73,7 @@ def calculate_refund(
 
     try:
         current_dt = _parse_cancel_time(cancel_at, start_dt.tzinfo)
-    except ValueError:
+    except (ValueError, TypeError, OSError):
         current_dt = FIXED_CURRENT_TIME
 
     hours_before = round(
